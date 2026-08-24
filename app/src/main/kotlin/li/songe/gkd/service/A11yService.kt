@@ -74,7 +74,24 @@ abstract class A11yService : AccessibilityService(), OnA11yLife by DefaultA11yLi
     override fun onServiceConnected() = onA11yConnected()
     override fun onInterrupt() {}
     override fun onDestroy() = onDestroyed()
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = ruleEngine.onA11yEvent(event)
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        RuleRecorder.onAccessibilityEvent(event)
+        ruleEngine.onA11yEvent(event)
+    }
+
+    fun setRuleRecorderEventsEnabled(enabled: Boolean) {
+        val info = serviceInfo ?: return
+        val clickEvent = AccessibilityEvent.TYPE_VIEW_CLICKED
+        val eventTypes = if (enabled) {
+            info.eventTypes or clickEvent
+        } else {
+            info.eventTypes and clickEvent.inv()
+        }
+        if (eventTypes != info.eventTypes) {
+            info.eventTypes = eventTypes
+            serviceInfo = info
+        }
+    }
 
     val startTime = System.currentTimeMillis()
     override var justStarted: Boolean = true
@@ -103,7 +120,10 @@ abstract class A11yService : AccessibilityService(), OnA11yLife by DefaultA11yLi
         useLogLifecycle()
         useAliveFlow(isRunning)
         onA11yConnected { instance = this }
-        onDestroyed { instance = null }
+        onDestroyed {
+            RuleRecorder.onA11yDisconnected()
+            instance = null
+        }
         onCreated {
             if (currentAppUseA11y) {
                 updateEnableAutomator(true)
