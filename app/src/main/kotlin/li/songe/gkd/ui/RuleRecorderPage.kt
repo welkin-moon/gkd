@@ -28,9 +28,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -74,6 +74,7 @@ import li.songe.gkd.util.LOCAL_SUBS_ID
 import li.songe.gkd.util.SubscriptionStore
 import li.songe.gkd.util.toast
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Serializable
 data object RuleRecorderRoute : NavKey
@@ -83,6 +84,7 @@ fun RuleRecorderPage() {
     val mainVm = LocalMainViewModel.current
     val actions by RuleRecorder.actionsFlow.collectAsStateWithLifecycle()
     val enabled = remember { mutableStateMapOf<Long, Boolean>() }
+    val anchorNodeIds = remember { mutableStateMapOf<Long, Int>() }
     val selectedNodeIds = remember { mutableStateMapOf<Long, Int>() }
     val selectorIndexes = remember { mutableStateMapOf<Long, Int>() }
     var selectedActionId by remember { mutableStateOf<Long?>(null) }
@@ -96,12 +98,21 @@ fun RuleRecorderPage() {
         actions.forEach { action ->
             enabled.putIfAbsent(action.id, action.hasStableSelector)
             selectorIndexes.putIfAbsent(action.id, 0)
-            action.frame?.suggestedNodeId?.let { nodeId ->
-                selectedNodeIds.putIfAbsent(action.id, nodeId)
+            val frame = action.frame
+            val suggestedNode = frame?.suggestedNodeId?.let { nodeId ->
+                frame.nodes.find { it.id == nodeId }
+            }
+            if (frame != null && suggestedNode != null) {
+                val anchor = findFineAnchor(frame.nodes, suggestedNode)
+                anchorNodeIds.putIfAbsent(action.id, anchor.id)
+                val levels = buildTargetRangeLevels(frame.nodes, anchor)
+                val recommended = levels.getOrNull(recommendTargetIndex(levels)) ?: suggestedNode
+                selectedNodeIds.putIfAbsent(action.id, recommended.id)
             }
         }
         val actionIds = actions.mapTo(mutableSetOf()) { it.id }
         enabled.keys.retainAll(actionIds)
+        anchorNodeIds.keys.retainAll(actionIds)
         selectedNodeIds.keys.retainAll(actionIds)
         selectorIndexes.keys.retainAll(actionIds)
         if (selectedActionId !in actionIds) {
@@ -222,8 +233,14 @@ fun RuleRecorderPage() {
                         val selectedNodeId = selectedNodeIds[action.id]
                         RuleRecorderElementPicker(
                             action = action,
+                            anchorNodeId = anchorNodeIds[action.id],
                             selectedNodeId = selectedNodeId,
                             selectorIndex = selectorIndexes[action.id] ?: 0,
+                            onTargetPicked = { anchorId, targetId ->
+                                anchorNodeIds[action.id] = anchorId
+                                selectedNodeIds[action.id] = targetId
+                                selectorIndexes[action.id] = 0
+                            },
                             onNodeSelected = { nodeId ->
                                 selectedNodeIds[action.id] = nodeId
                                 selectorIndexes[action.id] = 0
@@ -281,19 +298,21 @@ private fun RuleSequenceStrip(
             val index = actions.indexOf(action) + 1
             val active = enabled[action.id] == true
             val selected = action.id == selectedActionId
+            val shape = RoundedCornerShape(20.dp)
             Card(
                 modifier = Modifier
-                    .size(width = 144.dp, height = 92.dp)
+                    .size(width = 148.dp, height = 96.dp)
                     .clickable { onSelect(action.id) }
                     .then(
                         if (selected) {
                             Modifier.border(
                                 width = 2.dp,
                                 color = MaterialTheme.colorScheme.primary,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = shape,
                             )
                         } else Modifier
                     ),
+                shape = shape,
                 colors = CardDefaults.cardColors(
                     containerColor = if (selected) {
                         MaterialTheme.colorScheme.primaryContainer
@@ -341,8 +360,10 @@ private fun RuleSequenceStrip(
 @Composable
 private fun RuleRecorderElementPicker(
     action: RecordedRuleAction,
+    anchorNodeId: Int?,
     selectedNodeId: Int?,
     selectorIndex: Int,
+    onTargetPicked: (anchorId: Int, targetId: Int) -> Unit,
     onNodeSelected: (Int) -> Unit,
     onSelectorSelected: (Int) -> Unit,
 ) {
@@ -350,12 +371,14 @@ private fun RuleRecorderElementPicker(
     val selectedNode = frame?.nodes?.find { it.id == selectedNodeId }
     val fallbackNode = frame?.suggestedNodeId?.let { id -> frame.nodes.find { it.id == id } }
     val highlightedNode = selectedNode ?: fallbackNode
+    val anchorNode = frame?.nodes?.find { it.id == anchorNodeId }
+        ?: highlightedNode?.let { node -> frame?.let { findFineAnchor(it.nodes, node) } }
     val candidates = RuleRecorder.selectorCandidatesFor(action, highlightedNode?.id)
     val safeSelectorIndex = selectorIndex.coerceIn(0, max(0, candidates.lastIndex))
 
     Column(
         modifier = Modifier.padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = "这一步要点哪里？",
@@ -363,7 +386,7 @@ private fun RuleRecorderElementPicker(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            text = "亮框就是 GKD 会寻找并点击的范围。点画面里的其他位置可以直接改目标。",
+            text = "亮框就是 GKD 会寻找并点击的位置。直接点画面可以重新选，下面的范围条可以像元素选择器一样调整大小。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -376,12 +399,16 @@ private fun RuleRecorderElementPicker(
                 screenWidth = frame.screenWidth,
                 screenHeight = frame.screenHeight,
                 selectedNode = highlightedNode,
-                onNodeSelected = onNodeSelected,
+                onAnchorSelected = { anchor ->
+                    val levels = buildTargetRangeLevels(frame.nodes, anchor)
+                    val target = levels.getOrNull(recommendTargetIndex(levels)) ?: anchor
+                    onTargetPicked(anchor.id, target.id)
+                },
             )
         } else {
             Surface(
                 modifier = Modifier.fillMaxWidth().height(180.dp),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -399,10 +426,10 @@ private fun RuleRecorderElementPicker(
             }
         }
 
-        if (frame != null) {
-            FriendlyRangeControls(
-                action = action,
+        if (frame != null && anchorNode != null && highlightedNode != null) {
+            TargetRangeControl(
                 nodes = frame.nodes,
+                anchorNode = anchorNode,
                 selectedNode = highlightedNode,
                 onNodeSelected = onNodeSelected,
             )
@@ -425,7 +452,7 @@ private fun RuleRecorderElementPicker(
 
         if (candidates.isEmpty()) {
             Text(
-                text = "这个位置没有足够稳定的特征。可以点画面里更完整的按钮区域，或点“框得更大”。",
+                text = "这个位置没有足够稳定的特征。可以点画面里的完整按钮，再把“目标范围”向宽泛方向拖一点。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -450,25 +477,26 @@ private fun ScreenshotElementPicker(
     screenWidth: Int,
     screenHeight: Int,
     selectedNode: NodeInfo?,
-    onNodeSelected: (Int) -> Unit,
+    onAnchorSelected: (NodeInfo) -> Unit,
 ) {
     val primary = MaterialTheme.colorScheme.primary
     val overlay = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
     val ratio = screenWidth.toFloat() / screenHeight.toFloat().coerceAtLeast(1f)
     val painter = rememberAsyncImagePainter(model = screenshotPath)
+    val shape = RoundedCornerShape(24.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(ratio)
-            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(12.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer, shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .pointerInput(nodes, screenWidth, screenHeight) {
                 detectTapGestures { offset ->
                     if (size.width <= 0 || size.height <= 0) return@detectTapGestures
                     val x = offset.x / size.width * screenWidth
                     val y = offset.y / size.height * screenHeight
-                    findBestFriendlyNodeAt(nodes, x, y)?.let { node -> onNodeSelected(node.id) }
+                    findFineNodeAt(nodes, x, y)?.let(onAnchorSelected)
                 }
             },
     ) {
@@ -516,44 +544,122 @@ private fun ScreenshotElementPicker(
 }
 
 @Composable
-private fun FriendlyRangeControls(
-    action: RecordedRuleAction,
+private fun TargetRangeControl(
     nodes: List<NodeInfo>,
-    selectedNode: NodeInfo?,
+    anchorNode: NodeInfo,
+    selectedNode: NodeInfo,
     onNodeSelected: (Int) -> Unit,
 ) {
-    val current = selectedNode ?: return
-    val larger = current.pid.takeIf { it >= 0 }?.let { pid -> nodes.find { it.id == pid } }
-    val tapX = (action.left + action.right) / 2f
-    val tapY = (action.top + action.bottom) / 2f
-    val smaller = nodes
-        .asSequence()
-        .filter { it.pid == current.id }
-        .filter { it.attr.visibleToUser }
-        .sortedWith(
-            compareByDescending<NodeInfo> { nodeContains(node, tapX, tapY) }
-                .thenByDescending { hasUsefulIdentity(it) }
-                .thenBy { nodeArea(it) }
-        )
-        .firstOrNull()
+    val levels = buildTargetRangeLevels(nodes, anchorNode)
+    if (levels.isEmpty()) return
+    val recommendedIndex = recommendTargetIndex(levels)
+    val selectedIndex = levels.indexOfFirst { it.id == selectedNode.id }
+        .takeIf { it >= 0 }
+        ?: recommendedIndex
+    val current = levels[selectedIndex]
+    val atRecommended = selectedIndex == recommendedIndex
 
-    Row(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        OutlinedButton(
-            onClick = { smaller?.let { onNodeSelected(it.id) } },
-            enabled = smaller != null,
-            modifier = Modifier.weight(1f),
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("框得更小")
-        }
-        OutlinedButton(
-            onClick = { larger?.let { onNodeSelected(it.id) } },
-            enabled = larger != null,
-            modifier = Modifier.weight(1f),
-        ) {
-            Text("框得更大")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "目标范围",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "拖动时亮框会实时吸附到可用范围",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Text(
+                        text = targetRangeLabel(current, selectedIndex, levels.size),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+            }
+
+            if (levels.size > 1) {
+                Slider(
+                    value = selectedIndex.toFloat(),
+                    onValueChange = { rawValue ->
+                        val index = rawValue.roundToInt().coerceIn(levels.indices)
+                        val target = levels[index]
+                        if (target.id != selectedNode.id) {
+                            onNodeSelected(target.id)
+                        }
+                    },
+                    valueRange = 0f..levels.lastIndex.toFloat(),
+                    steps = (levels.size - 2).coerceAtLeast(0),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "更精细",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "向右拖会选择更完整的区域",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "更宽泛",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Text(
+                    text = "这里暂时只有一个合适的点击范围。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (atRecommended) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Text(
+                        text = "已使用推荐范围",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
+            } else {
+                TextButton(
+                    onClick = { levels.getOrNull(recommendedIndex)?.let { onNodeSelected(it.id) } },
+                ) {
+                    Text("恢复推荐范围")
+                }
+            }
         }
     }
 }
@@ -568,12 +674,13 @@ private fun TargetSummaryCard(node: NodeInfo, action: RecordedRuleAction) {
         ?: action.desc
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
@@ -609,7 +716,7 @@ private fun FriendlySelectorChoice(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(20.dp),
         color = if (checked) {
             MaterialTheme.colorScheme.secondaryContainer
         } else {
@@ -617,7 +724,7 @@ private fun FriendlySelectorChoice(
         },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -697,10 +804,28 @@ private fun friendlyTargetKind(node: NodeInfo): String {
     }
 }
 
+private fun targetRangeLabel(node: NodeInfo, index: Int, count: Int): String {
+    val attr = node.attr
+    val shortName = attr.name?.substringAfterLast('.').orEmpty()
+    return when {
+        shortName.contains("Button", ignoreCase = true) || attr.clickable -> "整个按钮"
+        attr.text?.isNotBlank() == true && attr.childCount == 0 -> "文字 / 图标"
+        index == 0 -> "最精细"
+        index == count - 1 -> "整块区域"
+        attr.childCount > 0 -> "内容区域"
+        else -> "目标区域"
+    }
+}
+
 private fun hasUsefulIdentity(node: NodeInfo): Boolean {
     val a = node.attr
     return !a.vid.isNullOrBlank() || !a.id.isNullOrBlank() ||
         !a.text.isNullOrBlank() || !a.desc.isNullOrBlank()
+}
+
+private fun hasVisualSignal(node: NodeInfo): Boolean {
+    val a = node.attr
+    return hasUsefulIdentity(node) || a.clickable || a.childCount == 0
 }
 
 private fun nodeContains(node: NodeInfo, x: Float, y: Float): Boolean {
@@ -714,25 +839,100 @@ private fun nodeArea(node: NodeInfo): Long {
         (a.bottom - a.top).coerceAtLeast(1).toLong()
 }
 
-private fun findBestFriendlyNodeAt(nodes: List<NodeInfo>, x: Float, y: Float): NodeInfo? {
+private fun sameBounds(first: NodeInfo, second: NodeInfo): Boolean {
+    val a = first.attr
+    val b = second.attr
+    return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom
+}
+
+private fun findFineNodeAt(nodes: List<NodeInfo>, x: Float, y: Float): NodeInfo? {
     val underFinger = nodes.asSequence()
         .filter { it.attr.visibleToUser }
+        .filter { it.attr.width > 0 && it.attr.height > 0 }
         .filter { nodeContains(it, x, y) }
         .toList()
     if (underFinger.isEmpty()) return null
 
-    // Prefer an actual clickable control with a stable identity over a tiny text
-    // child. This makes tapping a visual button behave like an element picker,
-    // rather than exposing the accessibility tree structure to the user.
     return underFinger
-        .filter { it.attr.clickable && hasUsefulIdentity(it) }
-        .minByOrNull(::nodeArea)
-        ?: underFinger
-            .filter(::hasUsefulIdentity)
-            .minByOrNull(::nodeArea)
+        .filter(::hasVisualSignal)
+        .minWithOrNull(
+            compareBy<NodeInfo>(::nodeArea).thenByDescending { it.attr.depth }
+        )
         ?: underFinger.minWithOrNull(
             compareBy<NodeInfo>(::nodeArea).thenByDescending { it.attr.depth }
         )
+}
+
+private fun findFineAnchor(nodes: List<NodeInfo>, selected: NodeInfo): NodeInfo {
+    val byId = nodes.associateBy { it.id }
+    return nodes.asSequence()
+        .filter { it.id != selected.id }
+        .filter { it.attr.visibleToUser && it.attr.width > 0 && it.attr.height > 0 }
+        .filter(::hasVisualSignal)
+        .filter { isDescendantOf(it, selected.id, byId) }
+        .sortedWith(
+            compareByDescending<NodeInfo> { it.attr.depth }
+                .thenBy { nodeArea(it) }
+        )
+        .firstOrNull()
+        ?: selected
+}
+
+private fun buildTargetRangeLevels(nodes: List<NodeInfo>, anchor: NodeInfo): List<NodeInfo> {
+    val byId = nodes.associateBy { it.id }
+    val chain = mutableListOf<NodeInfo>()
+    var current: NodeInfo? = anchor
+    var guard = 0
+    while (current != null && guard < 24) {
+        if (
+            current.attr.visibleToUser &&
+            current.attr.width > 0 &&
+            current.attr.height > 0 &&
+            chain.none { sameBounds(it, current!!) }
+        ) {
+            chain += current
+        }
+        current = current.pid.takeIf { it >= 0 }?.let(byId::get)
+        guard++
+    }
+    return chain.take(9)
+}
+
+private fun recommendTargetIndex(levels: List<NodeInfo>): Int {
+    if (levels.isEmpty()) return 0
+    val stableClickable = levels.indexOfFirst { node ->
+        val a = node.attr
+        a.clickable && (!a.vid.isNullOrBlank() || !a.id.isNullOrBlank())
+    }
+    if (stableClickable >= 0) return stableClickable
+
+    val identifiableClickable = levels.indexOfFirst { it.attr.clickable && hasUsefulIdentity(it) }
+    if (identifiableClickable >= 0) return identifiableClickable
+
+    val stable = levels.indexOfFirst { node ->
+        !node.attr.vid.isNullOrBlank() || !node.attr.id.isNullOrBlank()
+    }
+    if (stable >= 0) return stable
+
+    val identifiable = levels.indexOfFirst(::hasUsefulIdentity)
+    if (identifiable >= 0) return identifiable
+
+    return (levels.size / 2).coerceIn(levels.indices)
+}
+
+private fun isDescendantOf(
+    node: NodeInfo,
+    ancestorId: Int,
+    byId: Map<Int, NodeInfo>,
+): Boolean {
+    var parentId = node.pid
+    var guard = 0
+    while (parentId >= 0 && guard < 32) {
+        if (parentId == ancestorId) return true
+        parentId = byId[parentId]?.pid ?: return false
+        guard++
+    }
+    return false
 }
 
 private suspend fun saveRecordedRules(
