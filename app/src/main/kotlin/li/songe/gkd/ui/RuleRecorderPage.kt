@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -121,7 +122,7 @@ fun RuleRecorderPage() {
                         onClick = { mainVm.popPage() },
                     )
                 },
-                title = { Text("录制规则编辑") },
+                title = { Text("检查录制结果") },
                 actions = {
                     TextButton(
                         onClick = {
@@ -146,11 +147,7 @@ fun RuleRecorderPage() {
             ) {
                 val selectedCount = actions.count { enabled[it.id] == true }
                 Text(
-                    text = if (selectedCount > 1) {
-                        "$selectedCount 步 · 按录制顺序执行"
-                    } else {
-                        "$selectedCount 步"
-                    },
+                    text = if (selectedCount > 1) "$selectedCount 步 · 依次执行" else "$selectedCount 步",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -168,7 +165,7 @@ fun RuleRecorderPage() {
                                     groupName = groupName.trim(),
                                 )
                                 RuleRecorder.clear()
-                                toast("已按顺序加入本地订阅")
+                                toast("已加入本地订阅")
                                 mainVm.popPage()
                             } catch (e: Exception) {
                                 toast("保存失败：${e.message}", forced = true)
@@ -178,34 +175,34 @@ fun RuleRecorderPage() {
                         }
                     },
                 ) {
-                    Text(if (saving) "保存中" else "加入本地订阅")
+                    Text(if (saving) "保存中" else "完成")
                 }
             }
         },
     ) { contentPadding ->
         LazyColumn(
             modifier = Modifier.scaffoldPadding(contentPadding),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (actions.isEmpty()) {
                 item {
                     Spacer(Modifier.height(48.dp))
-                    EmptyText(text = "没有录制到可处理的点击")
+                    EmptyText(text = "没有录制到可处理的操作")
                 }
             } else {
                 item {
                     Column(
                         modifier = Modifier.padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = "操作顺序",
+                            text = "你刚才做了这些操作",
                             modifier = Modifier.padding(horizontal = 16.dp),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "关闭某一步后，前后步骤会自动重新连成顺序链。点击步骤可在下方截图中重新选元素。",
+                            text = "点某一步可以检查它；不需要的步骤直接取消勾选。",
                             modifier = Modifier.padding(horizontal = 16.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -231,9 +228,7 @@ fun RuleRecorderPage() {
                                 selectedNodeIds[action.id] = nodeId
                                 selectorIndexes[action.id] = 0
                             },
-                            onSelectorSelected = { index ->
-                                selectorIndexes[action.id] = index
-                            },
+                            onSelectorSelected = { index -> selectorIndexes[action.id] = index },
                         )
                     }
                 }
@@ -244,15 +239,20 @@ fun RuleRecorderPage() {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         HorizontalDivider()
+                        Text(
+                            text = "保存为",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         OutlinedTextField(
                             value = groupName,
                             onValueChange = { groupName = it },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text("规则组名称") },
+                            label = { Text("名称") },
                         )
                         Text(
-                            text = "保存后仍是标准 GKD 本地订阅规则；多步操作会用 key / preKeys 编译成原生顺序关系，但这里不显示 JSON。",
+                            text = "保存后会按上面的顺序自动执行；这里不需要写规则代码。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -274,7 +274,7 @@ private fun RuleSequenceStrip(
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(actions, key = { it.id }) { action ->
@@ -283,7 +283,7 @@ private fun RuleSequenceStrip(
             val selected = action.id == selectedActionId
             Card(
                 modifier = Modifier
-                    .size(width = 136.dp, height = 92.dp)
+                    .size(width = 144.dp, height = 92.dp)
                     .clickable { onSelect(action.id) }
                     .then(
                         if (selected) {
@@ -316,12 +316,12 @@ private fun RuleSequenceStrip(
                         verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         Text(
-                            text = "步骤 $index",
+                            text = "第 $index 步",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = action.text ?: action.desc ?: action.vid ?: "点击元素",
+                            text = action.text ?: action.desc ?: "点击这里",
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall,
@@ -348,50 +348,34 @@ private fun RuleRecorderElementPicker(
 ) {
     val frame = action.frame
     val selectedNode = frame?.nodes?.find { it.id == selectedNodeId }
-    val candidates = RuleRecorder.selectorCandidatesFor(action, selectedNodeId)
+    val fallbackNode = frame?.suggestedNodeId?.let { id -> frame.nodes.find { it.id == id } }
+    val highlightedNode = selectedNode ?: fallbackNode
+    val candidates = RuleRecorder.selectorCandidatesFor(action, highlightedNode?.id)
     val safeSelectorIndex = selectorIndex.coerceIn(0, max(0, candidates.lastIndex))
 
     Column(
         modifier = Modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "选择元素",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = action.appId,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                text = if (frame == null) "正在生成界面快照…" else "点截图重新选择",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        Text(
+            text = "这一步要点哪里？",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "亮框就是 GKD 会寻找并点击的范围。点画面里的其他位置可以直接改目标。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         if (frame?.screenshotPath != null) {
-            val nodeForHighlight = selectedNode ?: frame.suggestedNodeId?.let { id ->
-                frame.nodes.find { it.id == id }
-            }
             ScreenshotElementPicker(
                 action = action,
                 nodes = frame.nodes,
                 screenshotPath = frame.screenshotPath,
                 screenWidth = frame.screenWidth,
                 screenHeight = frame.screenHeight,
-                selectedNode = nodeForHighlight,
+                selectedNode = highlightedNode,
                 onNodeSelected = onNodeSelected,
             )
         } else {
@@ -403,10 +387,11 @@ private fun RuleRecorderElementPicker(
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = if (frame == null) {
-                            "正在捕获节点树与截图"
+                            "正在准备刚才的画面…"
                         } else {
-                            "当前界面无法截图，可继续通过节点属性选择"
+                            "这个应用不允许截图，仍可以使用下面的识别方式"
                         },
+                        modifier = Modifier.padding(20.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -415,73 +400,44 @@ private fun RuleRecorderElementPicker(
         }
 
         if (frame != null) {
-            ElementHierarchyControls(
+            FriendlyRangeControls(
+                action = action,
                 nodes = frame.nodes,
-                selectedNode = selectedNode,
-                fallbackNodeId = frame.suggestedNodeId,
+                selectedNode = highlightedNode,
                 onNodeSelected = onNodeSelected,
             )
         }
 
-        val node = selectedNode
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = node?.attr?.text ?: action.text ?: node?.attr?.desc ?: action.desc ?: "点击元素",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val attr = node?.attr
-                listOfNotNull(
-                    (attr?.vid ?: action.vid)?.let { "资源 ID · $it" },
-                    (attr?.name ?: action.className)?.let { "控件 · ${it.substringAfterLast('.')}" },
-                    attr?.desc?.takeIf { it != attr.text }?.let { "描述 · $it" },
-                ).forEach { line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+        highlightedNode?.let { node ->
+            TargetSummaryCard(node = node, action = action)
         }
 
         Text(
-            text = "匹配方式",
+            text = "怎么认出它？",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
+        Text(
+            text = "一般保持“推荐”即可；只有页面上有很多相似按钮时才需要换更严格的方式。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
         if (candidates.isEmpty()) {
             Text(
-                text = "这个节点没有可用的稳定属性，请在截图中选择其他元素。",
+                text = "这个位置没有足够稳定的特征。可以点画面里更完整的按钮区域，或点“框得更大”。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
         } else {
             candidates.forEachIndexed { index, selector ->
-                SelectorChoice(
+                FriendlySelectorChoice(
                     selector = selector,
                     checked = index == safeSelectorIndex,
+                    recommended = index == 0,
                     onClick = { onSelectorSelected(index) },
                 )
             }
-            Text(
-                text = "越靠上的方案通常越稳定；组合条件更严格，适合页面上有多个相似元素时使用。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -497,7 +453,7 @@ private fun ScreenshotElementPicker(
     onNodeSelected: (Int) -> Unit,
 ) {
     val primary = MaterialTheme.colorScheme.primary
-    val overlay = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+    val overlay = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
     val ratio = screenWidth.toFloat() / screenHeight.toFloat().coerceAtLeast(1f)
     val painter = rememberAsyncImagePainter(model = screenshotPath)
 
@@ -512,9 +468,7 @@ private fun ScreenshotElementPicker(
                     if (size.width <= 0 || size.height <= 0) return@detectTapGestures
                     val x = offset.x / size.width * screenWidth
                     val y = offset.y / size.height * screenHeight
-                    findBestNodeAt(nodes, x, y)?.let { node ->
-                        onNodeSelected(node.id)
-                    }
+                    findBestFriendlyNodeAt(nodes, x, y)?.let { node -> onNodeSelected(node.id) }
                 }
             },
     ) {
@@ -545,7 +499,7 @@ private fun ScreenshotElementPicker(
                     size = Size(width, height),
                     style = Stroke(width = 3.dp.toPx()),
                 )
-            } else {
+            } else if (screenWidth > 0 && screenHeight > 0) {
                 val left = action.left.toFloat() / screenWidth * size.width
                 val top = action.top.toFloat() / screenHeight * size.height
                 val right = action.right.toFloat() / screenWidth * size.width
@@ -562,50 +516,95 @@ private fun ScreenshotElementPicker(
 }
 
 @Composable
-private fun ElementHierarchyControls(
+private fun FriendlyRangeControls(
+    action: RecordedRuleAction,
     nodes: List<NodeInfo>,
     selectedNode: NodeInfo?,
-    fallbackNodeId: Int?,
     onNodeSelected: (Int) -> Unit,
 ) {
-    val current = selectedNode ?: fallbackNodeId?.let { id -> nodes.find { it.id == id } }
-    val parent = current?.pid?.takeIf { it >= 0 }?.let { pid -> nodes.find { it.id == pid } }
-    val children = current?.let { node -> nodes.filter { it.pid == node.id } }.orEmpty()
+    val current = selectedNode ?: return
+    val larger = current.pid.takeIf { it >= 0 }?.let { pid -> nodes.find { it.id == pid } }
+    val tapX = (action.left + action.right) / 2f
+    val tapY = (action.top + action.bottom) / 2f
+    val smaller = nodes
+        .asSequence()
+        .filter { it.pid == current.id }
+        .filter { it.attr.visibleToUser }
+        .sortedWith(
+            compareByDescending<NodeInfo> { nodeContains(node, tapX, tapY) }
+                .thenByDescending { hasUsefulIdentity(it) }
+                .thenBy { nodeArea(it) }
+        )
+        .firstOrNull()
 
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         OutlinedButton(
-            onClick = { parent?.let { onNodeSelected(it.id) } },
-            enabled = parent != null,
+            onClick = { smaller?.let { onNodeSelected(it.id) } },
+            enabled = smaller != null,
             modifier = Modifier.weight(1f),
         ) {
-            Text("选父元素")
+            Text("框得更小")
         }
         OutlinedButton(
-            onClick = {
-                children.minByOrNull { child ->
-                    val a = child.attr
-                    ((a.right - a.left).coerceAtLeast(1).toLong() *
-                        (a.bottom - a.top).coerceAtLeast(1).toLong())
-                }?.let { onNodeSelected(it.id) }
-            },
-            enabled = children.isNotEmpty(),
+            onClick = { larger?.let { onNodeSelected(it.id) } },
+            enabled = larger != null,
             modifier = Modifier.weight(1f),
         ) {
-            Text("选子元素")
+            Text("框得更大")
         }
     }
 }
 
 @Composable
-private fun SelectorChoice(
+private fun TargetSummaryCard(node: NodeInfo, action: RecordedRuleAction) {
+    val attr = node.attr
+    val kind = friendlyTargetKind(node)
+    val label = attr.text?.takeIf { it.isNotBlank() }
+        ?: attr.desc?.takeIf { it.isNotBlank() }
+        ?: action.text
+        ?: action.desc
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = if (label != null) "已选中：$kind「$label」" else "已选中：$kind",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = when {
+                    attr.clickable -> "这是一个可直接点击的区域"
+                    attr.text?.isNotBlank() == true -> "这是画面中的文字区域"
+                    attr.childCount > 0 -> "这是包含多个内容的区域"
+                    else -> "这是画面中的一个元素"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FriendlySelectorChoice(
     selector: String,
     checked: Boolean,
+    recommended: Boolean,
     onClick: () -> Unit,
 ) {
-    val display = selectorToFriendlyText(selector)
+    val display = friendlySelectorDescription(selector)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -632,59 +631,107 @@ private fun SelectorChoice(
                     ),
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = display.first,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal,
-                )
-                display.second?.let { detail ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        text = detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = display.first,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal,
                     )
+                    if (recommended) {
+                        Text(
+                            text = "推荐",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
+                Text(
+                    text = display.second,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
 }
 
-private fun selectorToFriendlyText(selector: String): Pair<String, String?> {
-    val labels = buildList {
-        if ("[vid=" in selector) add("资源 ID")
-        if ("[id=" in selector && "[vid=" !in selector) add("完整资源 ID")
-        if ("[text=" in selector) add("文字")
-        if ("[desc=" in selector) add("无障碍描述")
-        if ("[name=" in selector) add("控件类型")
+private fun friendlySelectorDescription(selector: String): Pair<String, String> {
+    val hasVid = "[vid=" in selector || ("[id=" in selector && "[vid=" !in selector)
+    val hasText = "[text=" in selector
+    val hasDesc = "[desc=" in selector
+    val hasName = "[name=" in selector
+    val count = listOf(hasVid, hasText, hasDesc, hasName).count { it }
+    if (count >= 2) {
+        return "更严格地认这个目标" to when {
+            hasVid && hasText -> "同时确认这个控件本身和它显示的文字，适合有多个相似按钮的页面"
+            hasVid && hasDesc -> "同时确认这个控件本身和它的辅助说明，适合图标按钮"
+            hasName && hasText -> "同时确认控件类型和显示文字，比只看文字更严格"
+            hasName && hasDesc -> "同时确认控件类型和辅助说明"
+            else -> "同时使用多个特征，减少误点相似元素"
+        }
     }
-    val title = when {
-        labels.size >= 2 -> labels.joinToString(" + ")
-        labels.size == 1 -> labels.first()
-        else -> "自定义属性"
+    return when {
+        hasVid -> "认准这个控件" to "使用应用给这个控件的固定标识，通常最稳定"
+        hasText -> "认准这段文字" to "根据屏幕上显示的文字寻找；文字变化或切换语言时可能失效"
+        hasDesc -> "认准它的辅助说明" to "适合没有文字的图标、按钮等目标"
+        hasName -> "认准这类控件" to "范围比较宽，页面上有多个同类控件时不建议单独使用"
+        else -> "使用当前特征" to "使用录制时发现的特征寻找目标"
     }
-    val detail = selector
-        .replace(Regex("\\[(vid|id|text|desc|name)=\""), "")
-        .replace("\"]", " · ")
-        .trim(' ', '·')
-        .takeIf { it.isNotBlank() }
-    return title to detail
 }
 
-private fun findBestNodeAt(nodes: List<NodeInfo>, x: Float, y: Float): NodeInfo? {
-    return nodes
-        .asSequence()
-        .filter { node ->
-            val a = node.attr
-            x >= a.left && x <= a.right && y >= a.top && y <= a.bottom
-        }
-        .minWithOrNull(
-            compareBy<NodeInfo> { node ->
-                val a = node.attr
-                (a.right - a.left).coerceAtLeast(1).toLong() *
-                    (a.bottom - a.top).coerceAtLeast(1).toLong()
-            }.thenByDescending { it.attr.depth }
+private fun friendlyTargetKind(node: NodeInfo): String {
+    val attr = node.attr
+    val shortName = attr.name?.substringAfterLast('.').orEmpty()
+    return when {
+        shortName.contains("Button", ignoreCase = true) -> "按钮"
+        attr.clickable -> "可点击区域"
+        shortName.contains("Image", ignoreCase = true) -> "图片"
+        attr.text?.isNotBlank() == true -> "文字"
+        attr.childCount > 0 -> "区域"
+        else -> "目标"
+    }
+}
+
+private fun hasUsefulIdentity(node: NodeInfo): Boolean {
+    val a = node.attr
+    return !a.vid.isNullOrBlank() || !a.id.isNullOrBlank() ||
+        !a.text.isNullOrBlank() || !a.desc.isNullOrBlank()
+}
+
+private fun nodeContains(node: NodeInfo, x: Float, y: Float): Boolean {
+    val a = node.attr
+    return x >= a.left && x <= a.right && y >= a.top && y <= a.bottom
+}
+
+private fun nodeArea(node: NodeInfo): Long {
+    val a = node.attr
+    return (a.right - a.left).coerceAtLeast(1).toLong() *
+        (a.bottom - a.top).coerceAtLeast(1).toLong()
+}
+
+private fun findBestFriendlyNodeAt(nodes: List<NodeInfo>, x: Float, y: Float): NodeInfo? {
+    val underFinger = nodes.asSequence()
+        .filter { it.attr.visibleToUser }
+        .filter { nodeContains(it, x, y) }
+        .toList()
+    if (underFinger.isEmpty()) return null
+
+    // Prefer an actual clickable control with a stable identity over a tiny text
+    // child. This makes tapping a visual button behave like an element picker,
+    // rather than exposing the accessibility tree structure to the user.
+    return underFinger
+        .filter { it.attr.clickable && hasUsefulIdentity(it) }
+        .minByOrNull(::nodeArea)
+        ?: underFinger
+            .filter(::hasUsefulIdentity)
+            .minByOrNull(::nodeArea)
+        ?: underFinger.minWithOrNull(
+            compareBy<NodeInfo>(::nodeArea).thenByDescending { it.attr.depth }
         )
 }
 
@@ -707,7 +754,7 @@ private suspend fun saveRecordedRules(
             val selectorIndex = (selectorIndexes[action.id] ?: 0)
                 .coerceIn(0, max(0, candidates.lastIndex))
             val selector = candidates.getOrNull(selectorIndex) ?: action.defaultSelector
-            require(selector.isNotBlank()) { "步骤 ${index + 1} 没有可用选择器" }
+            require(selector.isNotBlank()) { "步骤 ${index + 1} 没有可用的识别方式" }
             buildString {
                 append("{ key: ${index + 1}")
                 if (index > 0) {
