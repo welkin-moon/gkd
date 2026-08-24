@@ -2,7 +2,6 @@ package li.songe.gkd.service
 
 import android.app.PendingIntent
 import android.content.Intent
-import android.net.Uri
 import li.songe.gkd.MainActivity
 import li.songe.gkd.util.AndroidTarget
 import li.songe.gkd.util.toast
@@ -34,7 +33,7 @@ class RuleRecorderTileService : BaseTileService() {
 
     private fun openReviewPage() {
         val intent = Intent(this, MainActivity::class.java).apply {
-            data = Uri.parse("gkd://page/5")
+            action = ACTION_REVIEW_RULE_RECORDING
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         if (AndroidTarget.UPSIDE_DOWN_CAKE) {
@@ -49,5 +48,9 @@ class RuleRecorderTileService : BaseTileService() {
             @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
         }
+    }
+
+    companion object {
+        const val ACTION_REVIEW_RULE_RECORDING = "li.songe.gkd.action.REVIEW_RULE_RECORDING"
     }
 }
