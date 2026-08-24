@@ -59,7 +59,9 @@ fun RuleRecorderPage() {
     val actions by RuleRecorder.actionsFlow.collectAsStateWithLifecycle()
     val enabled = remember { mutableStateMapOf<Long, Boolean>() }
     val selectorIndexes = remember { mutableStateMapOf<Long, Int>() }
-    var groupName by remember { mutableStateOf("录制规则") }
+    var groupName by remember {
+        mutableStateOf("录制规则-${System.currentTimeMillis().toString().takeLast(6)}")
+    }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -81,7 +83,7 @@ fun RuleRecorderPage() {
                 navigationIcon = {
                     PerfIconButton(
                         imageVector = PerfIcon.ArrowBack,
-                        onClick = mainVm::popPage,
+                        onClick = { mainVm.popPage() },
                     )
                 },
                 title = { Text("处理录制规则") },
