@@ -32,6 +32,8 @@ import li.songe.gkd.ui.ImagePreviewPage
 import li.songe.gkd.ui.ImagePreviewRoute
 import li.songe.gkd.ui.PrivilegeServicePage
 import li.songe.gkd.ui.PrivilegeServiceRoute
+import li.songe.gkd.ui.RuleRecorderPage
+import li.songe.gkd.ui.RuleRecorderRoute
 import li.songe.gkd.ui.SlowGroupPage
 import li.songe.gkd.ui.SlowGroupRoute
 import li.songe.gkd.ui.SnapshotPage
@@ -66,6 +68,7 @@ private val mainRouteEntryProvider = entryProvider {
     entry<AdvancedPageRoute> { AdvancedPage() }
     entry<PrivilegeServiceRoute> { PrivilegeServicePage() }
     entry<SnapshotPageRoute> { SnapshotPage() }
+    entry<RuleRecorderRoute> { RuleRecorderPage() }
     entry<A11YScopeAppListRoute> { A11yScopeAppListPage() }
     entry<ActivityLogRoute> { ActivityLogPage() }
     entry<A11yEventLogRoute> { A11yEventLogPage() }
