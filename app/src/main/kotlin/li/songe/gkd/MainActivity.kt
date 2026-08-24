@@ -1,5 +1,6 @@
 package li.songe.gkd
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,10 +26,12 @@ import li.songe.gkd.a11y.updateTopActivity
 import li.songe.gkd.permission.PermissionRequests
 import li.songe.gkd.permission.PermissionStates
 import li.songe.gkd.priv.privilegeContextFlow
+import li.songe.gkd.service.RuleRecorderTileService
 import li.songe.gkd.service.StatusService
 import li.songe.gkd.service.fixRestartAutomatorService
 import li.songe.gkd.service.updateTopTaskAppId
 import li.songe.gkd.store.storeFlow
+import li.songe.gkd.ui.RuleRecorderRoute
 import li.songe.gkd.ui.share.ActivityImeController
 import li.songe.gkd.ui.share.ActivityResultRequests
 import li.songe.gkd.ui.share.FixedWindowInsets
@@ -51,6 +54,14 @@ class MainActivity : ComponentActivity() {
 
     var topBarWindowInsets by mutableStateOf(WindowInsets(top = BarUtils.getStatusBarHeight()))
 
+    private fun handleMainIntent(intent: Intent) {
+        if (intent.action == RuleRecorderTileService.ACTION_REVIEW_RULE_RECORDING) {
+            mainVm.navigatePage(RuleRecorderRoute)
+        } else {
+            mainVm.handleIntent(intent)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         enableEdgeToEdge()
@@ -67,7 +78,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         addOnNewIntentListener {
-            mainVm.handleIntent(it)
+            handleMainIntent(it)
             intent = null
         }
         StatusService.autoStart()
@@ -86,7 +97,7 @@ class MainActivity : ComponentActivity() {
                 AppRoot()
                 LaunchedEffect(null) {
                     intent?.let {
-                        mainVm.handleIntent(it)
+                        handleMainIntent(it)
                         intent = null
                     }
                 }
